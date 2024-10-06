@@ -9,13 +9,19 @@ from pybitget.stream import BitgetWsClient, SubscribeReq, handel_error
 from pybitget.enums import *
 from pybitget import logger
 from datetime import datetime
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 # Configuration
-DISCORD_TOKEN = 'DISCORD_TOKEN'
-BITGET_API_KEY = 'BITGET_API_KEY'
-BITGET_SECRET_KEY = 'BITGET_SECRET_KEY'
-BITGET_PASSPHRASE = 'BITGET_PASSPHRASE'
-CHANNEL_ID = 'CHANNEL_ID'
+DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
+BITGET_API_KEY = os.getenv('BITGET_API_KEY')
+BITGET_SECRET_KEY = os.getenv('BITGET_SECRET_KEY')
+BITGET_PASSPHRASE = os.getenv('BITGET_PASSPHRASE')
+CHANNEL_ID = os.getenv('CHANNEL_ID')
+WAITING_TIME =  os.getenv('WAITING_TIME')
+
 api_url = "https://api.bitget.com"
 symbol = "BTCUSDT_UMCBL"
 
@@ -65,34 +71,64 @@ query = {
 intents = discord.Intents.default()
 intents.message_content = True
 
-timesOrders = []
+timesPositions = []
 
 
 
 class MyClient(discord.Client):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.timesPositions = [] 
         self.timesOrders = [] 
         
     async def on_ready(self):
         print(f'Connecté en tant que {self.user}')
         self.check_positions_task = self.loop.create_task(self.check_positions())
-        # self.check_positions_task = self.loop.create_task(self.check_orders())
+        self.check_positions_task = self.loop.create_task(self.check_orders())
 
     async def send_position_update(self, position):
         channel = self.get_channel(int(CHANNEL_ID))
         if channel:
-           if position['cTime'] not in self.timesOrders:  
+           if position['cTime'] not in self.timesPositions:  
                 try:
                     await channel.send(
+                        f"**-----------------------------------------------**\n"
                         f"**New Position:**\n"
+                        f"**Token:** {position['symbol']}\n" 
                         f"**Leverage:** {position['leverage']}\n"
                         f"**Market Price:** {position['marketPrice']}\n"
                         f"**Average Open Price:** {position['averageOpenPrice']}\n"
                         f"**Time:** `{convert_ctime_to_date(position['cTime'])}`\n"
                         f"**Hold Side:** {position['holdSide']}\n"
+                        f"**-----------------------------------------------**\n"
                     )
-                    self.timesOrders.append(position['cTime']) 
+                    self.timesPositions.append(position['cTime']) 
+                    print("Message envoyé avec succès.")
+                except discord.Forbidden:
+                    print("Le bot n'a pas les permissions nécessaires pour envoyer un message dans ce canal.")
+                except Exception as e:
+                    print(f"Erreur lors de l'envoi du message : {e}")
+           else: 
+                print(f"deja envoyé")
+        else:
+            print(f"Le canal n'a pas été trouvé. {self.get_channel(int(CHANNEL_ID))}")
+            
+    async def send_order_update(self, order):
+        channel = self.get_channel(int(CHANNEL_ID))
+        if channel:
+           if order['cTime'] not in self.timesOrders:  
+                try:
+                    await channel.send(
+                        f"**-----------------------------------------------**\n"
+                        f"**New Order:**\n"
+                        f"**Token:** {order['symbol']}\n" 
+                        f"**Leverage:** {order['leverage']}\n"
+                        f"**Order Price:** {order['price']}\n"
+                        f"**Time:** `{convert_ctime_to_date(order['cTime'])}`\n"
+                        f"**Side:** {order['side']}\n"
+                        f"**-----------------------------------------------**\n"
+                    )
+                    self.timesOrders.append(order['cTime']) 
                     print("Message envoyé avec succès.")
                 except discord.Forbidden:
                     print("Le bot n'a pas les permissions nécessaires pour envoyer un message dans ce canal.")
@@ -108,7 +144,7 @@ class MyClient(discord.Client):
         return order_resp.json().get('data', {})
     
     def get_orders(self):
-      order_resp = bitget_request("/api/mix/v1/order/orders-history", None, query, "GET")
+      order_resp = bitget_request("/api/mix/v1/order/marginCoinCurrent", None, query, "GET")
       return order_resp.json().get('data', {})
 
     async def check_positions(self):
@@ -124,10 +160,9 @@ class MyClient(discord.Client):
        while True:
            orders = self.get_orders()
            print(f"Orders: {orders}")
-        #    for position in positions:
-        #        position_info =position
-        #        await self.send_position_update(position_info)
-           await asyncio.sleep(1)  
+           for order in orders:
+               await self.send_order_update(order)
+           await asyncio.sleep(WAITING_TIME)  
 
    
 
